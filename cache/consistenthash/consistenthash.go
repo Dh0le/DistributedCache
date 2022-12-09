@@ -17,13 +17,14 @@ type Map struct{
 	hashMap map[int]string // mapping relation between key on hash ring and real hash server
 }
 
+// consistent hashing constructor
 func New(replicas int, fn Hash)*Map{
 	m := &Map{
 		replicas: replicas,
 		hash: fn,
 		hashMap: make(map[int]string),
 	}
-	 
+	// default consistent hashing function
 	if m.hash == nil{
 		m.hash = crc32.ChecksumIEEE
 	}
@@ -42,6 +43,7 @@ func (m *Map)Add(keys ...string){
 	sort.Ints(m.keys)
 }
 
+// given a key, return the server it stored in
 func(m *Map)Get(key string)string{
 	// null check for hash ring
 	if len(m.keys) == 0{
