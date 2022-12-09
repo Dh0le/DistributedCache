@@ -13,9 +13,9 @@ type Getter interface{
 }
 
 // we create a getter function to implement Getter interface
-type GetterFunction func(key string)([]byte,error)
+type GetterFunc func(key string)([]byte,error)
 
-func (f GetterFunction)Get(key string)([]byte,error){
+func (f GetterFunc)Get(key string)([]byte,error){
 	return f(key)
 }
 
