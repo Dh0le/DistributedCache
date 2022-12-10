@@ -31,6 +31,7 @@ type Group struct{
 	name string // name of the group
 	getter Getter // getter that allows cache to fetch data from database, this is a cache through architecture
 	mainCache cache // concurrent hash for this group in this node(this is a distributed cache)
+	peers PeerPicker // add pick peer that allows data to be fetched from other nodes
 }
 
 // Constructor for a group
@@ -80,6 +81,14 @@ func (g *Group)Get(key string)(ByteView,error){
 // later we will add fetch process to fetch data from peer node
 func (g *Group)load(key string)(ByteView,error){
 	return g.getLocally(key)
+}
+
+func (g *Group)getFromPeer(peer PeerGetter,key string)(ByteView,error){
+	bytes,err := peer.Get(g.name,key)
+	if err != nil{
+		return ByteView{},err
+	}
+	return ByteView{bytes},nil
 }
 
 // fetch data from database
