@@ -3,6 +3,8 @@ package cache
 import (
 	"log"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 // create a group, we can accept different name for group name
@@ -11,30 +13,48 @@ func CreateGroup(groupName string, fn Getter,cacheSize int64)*Group{
 }
 
 // start a cache server, user will not sense it. this will only expose to peer node
-func StartCacheServer(addr string, addrs[]string, mainCache *Group){
-	peers := NewNetworkController(addr)
-	peers.Set(addrs...)
-	mainCache.RegisterPeers(peers)
-	log.Println("cache is running")
-	log.Fatal(http.ListenAndServe(addr[7:],peers))
+func StartCacheServer(addr string, port string, addrs[]string, mainCache *Group){
+	r := gin.Default()
+	networkController := NewNetworkController(addr)
+	networkController.Set(addrs...)
+	queryPath := networkController.basePath+":group/:key"
+	mainCache.RegisterPeers(networkController)
+	log.Println(queryPath)
+	r.GET(queryPath,func(ctx *gin.Context) {
+		log.Println("Recieved a fetch request from peer node")
+		groupName := ctx.Param("group")
+		key := ctx.Param("key")
+		group := GetGroup(groupName)
+		if group == nil{
+			ctx.String(http.StatusNotFound,"no such group")
+			return
+		}
+		view, err := group.Get(key)
+		if err != nil{
+			ctx.String(http.StatusInternalServerError,err.Error())
+			return 
+		}
+		ctx.Header("Content-Type","application/octet-stream")
+		ctx.String(http.StatusOK,view.String())
+	})
+	r.Run(port)
 }
 
 
 // start a front end interaction, this address and port will be exposed to user
-func StartAPIServer(apiAddr string, cache*Group){
-	http.Handle("/api",http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			key := r.URL.Query().Get("key")
-			view,err := cache.Get(key)
-			if err != nil{
-				http.Error(w,err.Error(),http.StatusInternalServerError)
-				return
-			}
-			w.Header().Set("Content-Type","application/octet-stream")
-			w.Write(view.ByteSlice())
-		}))
-		log.Println("Frontend server is running at ",apiAddr)
-		log.Fatal(http.ListenAndServe(apiAddr[7:],nil))
+func StartAPIServer(apiAddr string,port string, cache*Group){
+	r := gin.Default()
+	r.GET("/api",func(ctx *gin.Context) {
+		key := ctx.DefaultQuery("key","Tom")
+		view,err := cache.Get(key)
+		if err != nil{
+			ctx.String(http.StatusInternalServerError,"")
+			return
+		}
+		ctx.Header("Content-Type","application/octet-stream")
+		ctx.String(http.StatusOK,view.String())
+	})
+	r.Run(port)
 }
 
 
