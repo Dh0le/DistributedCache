@@ -11,34 +11,37 @@ import (
 	"sync"
 )
 
-const defaultBasePath = "/_geecache/"
-const defaultReplicas = 50
-var _PeerPicker = (*HTTPPool)(nil)
+// this path will be used in node communication
+const defaultBasePath = "/_gocache/"
+const defaultReplicas = 5
+var _PeerPicker = (*NetworkController)(nil)
 var _PeerGetter = (*httpGetter)(nil)
 
-type HTTPPool struct{
-	self string  //address and port for current node
-	basePath string // baseurl path for cache api
-	mu sync.Mutex // lock when registering peer
-	peers *consistenthash.Map // map object to get peer with consistent hashing
-	httpGetters map[string]*httpGetter
+
+// HttpPool is a struct implementted hanlder, PeerPicker interface
+type NetworkController struct{
+	self string // address and port for current node
+	basePath string // base url for cache api
+	mu sync.Mutex // mutex lock for register peer
+	peers *consistenthash.Map // a consistant hash object to add and map peers
+	httpGetters map[string]*httpGetter // a hash map that map peer name to its getter function
 }
 
 // consturctor of HTTPPool
-func NewHTTPPool(self string)*HTTPPool{
-	return &HTTPPool{
+func NewNetworkController(self string)*NetworkController{
+	return &NetworkController{
 		self: self,
 		basePath: defaultBasePath,
 	}
 }
 
 // Log function
-func(p *HTTPPool)Log(format string ,v ...interface{}){
+func(p *NetworkController)Log(format string ,v ...interface{}){
 	log.Printf("[Server %s]%s",p.self,fmt.Sprintf(format,v...))
 }
 
 // ServeHTTP function to implement Handler interface
-func(p *HTTPPool)ServeHTTP(w http.ResponseWriter,r *http.Request){
+func(p *NetworkController)ServeHTTP(w http.ResponseWriter,r *http.Request){
 	// check if current request has correct path
 	if !strings.HasPrefix(r.URL.Path,p.basePath){
 		panic("HTTPPOOL serving unexpected path:" + r.URL.Path)
@@ -72,7 +75,7 @@ func(p *HTTPPool)ServeHTTP(w http.ResponseWriter,r *http.Request){
 }
 
 // function to set peers for current node
-func (p *HTTPPool)Set(peers ...string){
+func (p *NetworkController)Set(peers ...string){
 	// lock to prevent conflict
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -83,13 +86,14 @@ func (p *HTTPPool)Set(peers ...string){
 	// for each peer, we create its mapping between its name and its getter function
 	p.httpGetters = make(map[string]*httpGetter,len(peers))
 	// create getter function for each peer
+	// the base url for the getter function is the name of the peer with base path
 	for _,peer:= range peers{
 		p.httpGetters[peer] = &httpGetter{baseUrl: peer+p.basePath}
 	}
 }
 
 // function to implement PeerPicker interface, then we can inject this object into our maincache
-func(p *HTTPPool)PickPeer(key string)(PeerGetter,bool){
+func(p *NetworkController)PickPeer(key string)(PeerGetter,bool){
 	// lock to prevent conflict
 	p.mu.Lock()
 	defer p.mu.Unlock()

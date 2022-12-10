@@ -12,7 +12,7 @@ func CreateGroup(groupName string, fn Getter,cacheSize int64)*Group{
 
 // start a cache server, user will not sense it. this will only expose to peer node
 func StartCacheServer(addr string, addrs[]string, mainCache *Group){
-	peers := NewHTTPPool(addr)
+	peers := NewNetworkController(addr)
 	peers.Set(addrs...)
 	mainCache.RegisterPeers(peers)
 	log.Println("cache is running")
