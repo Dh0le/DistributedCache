@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"strconv"
 )
 
 // dummy db
@@ -13,35 +14,6 @@ var db = map[string]string{
 	"Jack": "589",
 	"Sam":  "567",
 }
-
-// // start a cache server, user will not sense it. this will only expose to peer node
-// func startCacheServer(addr string, addrs[]string, mainCache *cache.Group){
-// 	peers := cache.NewHTTPPool(addr)
-// 	peers.Set(addrs...)
-// 	mainCache.RegisterPeers(peers)
-// 	// will be modified use Gin framework
-// 	log.Println("cache is running")
-// 	log.Fatal(http.ListenAndServe(addr[7:],peers))
-// }
-
-// // start a front end interaction, this address and port will be exposed to user
-// // TODO: This wll be modifed to use Gin framework
-// func startAPIServer(apiAddr string, cache*cache.Group){
-// 	http.Handle("/api",http.HandlerFunc(
-// 		func(w http.ResponseWriter, r *http.Request) {
-// 			key := r.URL.Query().Get("key")
-// 			view,err := cache.Get(key)
-// 			if err != nil{
-// 				http.Error(w,err.Error(),http.StatusInternalServerError)
-// 				return
-// 			}
-// 			w.Header().Set("Content-Type","application/octet-stream")
-// 			w.Write(view.ByteSlice())
-// 		}))
-// 		log.Println("Frontend server is running at ",apiAddr)
-// 		log.Fatal(http.ListenAndServe(apiAddr[7:],nil))
-// 	}
-
 
 func main(){
 	// allowed user to decide if we want to start a api server
@@ -74,12 +46,16 @@ func main(){
 		}
 		return nil,fmt.Errorf("%s not exist",key)
 	})
-
-	cacheGroup := cache.CreateGroup("score",getterFn,2<<10)
+	// create a group
+	cacheGroup := cache.CreateGroup("scores",getterFn,2<<10)
+	// create an API server
 	if api{
-		cache.StartAPIServer(apiAddr,cacheGroup)
+		// since we use gin as our sever, we need to use "go" to start a new thread
+		// if we dont use go here, the thread will stuck and will not proceed to create local cache server
+		go cache.StartAPIServer(apiAddr,":9999",cacheGroup)
 	}
-
-	cache.StartCacheServer(addrMap[port],addrs,cacheGroup)
+	
+	// start Cache server
+	cache.StartCacheServer(addrMap[port],":"+ strconv.Itoa(port),addrs,cacheGroup)
 }
 
