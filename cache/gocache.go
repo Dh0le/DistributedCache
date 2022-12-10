@@ -1,91 +1,112 @@
 package cache
 
 import (
+	"cache/singleflight"
 	"fmt"
 	"log"
 	"sync"
 )
 
-// Getter interface, since for different group we will have different data getter function
-// These function implement Getter function allows different databases support
+// Getter interface
 type Getter interface{
 	Get(key string)([]byte,error)
 }
 
-// we create a getter function to implement Getter interface
-type GetterFunc func(key string)([]byte,error)
+// Getter function interface to support dependency injection of different database
+type GetterFunc func(key string)([]byte, error)
 
-func (f GetterFunc)Get(key string)([]byte,error){
+// for every getter function, return its get result
+func(f GetterFunc) Get(key string)([]byte,error){
 	return f(key)
 }
 
-var(
-	// we have readwrite lock when user creating new groups
-	mu sync.RWMutex
-	// we have hash map for all the groups with its name as key
-	groups = make(map[string]*Group)
-)
-
 // group is the top granularity of the cache. Same type of data will be stored in the same group like"Score","Rating"
 type Group struct{
-	name string // name of the group
-	getter Getter // getter that allows cache to fetch data from database, this is a cache through architecture
-	mainCache cache // concurrent hash for this group in this node(this is a distributed cache)
-	peers PeerPicker // add pick peer that allows data to be fetched from other nodes
+	name string // name of group
+	getter Getter // getter function for current group
+	mainCache cache // concurrent cache for current group
+	peers PeerPicker // peer picker to fetch from peer if searched key is not in current cache
+	loader *singleflight.Group // a single flight gourp to prevent cache penetration
 }
 
-// Constructor for a group
-func NewGroup(name string, cacheBytes int64, getter Getter)*Group{
-	// every gourp must have a getter
-	if getter == nil{
+var(
+	mu sync.RWMutex // global RW lock for group creation
+	groups = make(map[string]*Group) // global map to store all the groups
+)
+
+// constructor of a group, with name, cache size, and getter function to fetch data from database
+func NewGroup(name string,cacheBytes int64, getter Getter)*Group{
+	if(getter == nil){
 		panic("nil getter")
 	}
-	// when createing a group, we have a mutex lock so there is no conflict
+	// lock to prevent conflict
 	mu.Lock()
 	defer mu.Unlock()
 	// create group
 	g := &Group{
-		name: name,
+		name:name,
 		getter: getter,
 		mainCache: cache{cacheByte: cacheBytes},
+		loader: &singleflight.Group{},
 	}
 	groups[name] = g
-	return g
+	// return created group
+	return g;
 }
 
+// global function to retrieve group.
 func GetGroup(name string)*Group{
-	// this is ready only ,so we add read lock here
-	mu.RLock()
+	// add read lock to prevent conflict
+	mu.RLock();
 	defer mu.RUnlock()
+	// return group
 	g := groups[name]
 	return g
 }
-
-// get value with given key in this group
-func (g *Group)Get(key string)(ByteView,error){
-	// key must not be empty or null
-	if key == ""{
+// get function to get key from current group
+func (g *Group) Get(key string)(ByteView,error){
+	// null check for key
+	if(key == ""){
 		return ByteView{},fmt.Errorf("key is required")
 	}
-	// if cache in current node contains the value
+	// try to get value from cache in this node
 	if v,ok := g.mainCache.get(key);ok{
 		log.Println("Cache hit")
 		return v,nil
 	}
-	// current node does not corresponding value
+	// current node does not contain corresponding value
 	// entering remote fetching process
 	return g.load(key)
 }
 
-// for now we just fetch from database directly.
-// later we will add fetch process to fetch data from peer node
-func (g *Group)load(key string)(ByteView,error){
-	return g.getLocally(key)
+// function to load data from remote node or database
+func (g *Group) load(key string) (value ByteView, err error) {
+	// each key is only fetched once (either locally or remotely)
+	// regardless of the number of concurrent callers.
+	viewi, err := g.loader.Do(key, func() (interface{}, error) {
+		if g.peers != nil {
+			if peer, ok := g.peers.PickPeer(key); ok {
+				if value, err = g.getFromPeer(peer, key); err == nil {
+					return value, nil
+				}
+				log.Println("[GeeCache] Failed to get from peer", err)
+			}
+		}
+
+		return g.getLocally(key)
+	})
+
+	if err == nil {
+		return viewi.(ByteView), nil
+	}
+	return
 }
 
-func (g *Group)getFromPeer(peer PeerGetter,key string)(ByteView,error){
+// use the peer getter function to fetch data
+func (g *Group)getFromPeer(peer PeerGetter, key string)(ByteView,error){
 	bytes,err := peer.Get(g.name,key)
 	if err != nil{
+		// fetch failed
 		return ByteView{},err
 	}
 	return ByteView{bytes},nil
@@ -118,8 +139,13 @@ func (g *Group)populateCache(key string,value ByteView){
 	g.mainCache.add(key,value)
 }
 
-
-
+// inject peer picker into current node
+func (g *Group)RegisterPeers(peers PeerPicker){
+	if g.peers != nil{
+		panic("Register peers called more than once")
+	}
+	g.peers = peers
+}
 
 
 
