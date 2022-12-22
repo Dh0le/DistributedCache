@@ -1,25 +1,34 @@
 # DistributedCache
+
 Distributed Concurrent Cache based on Golang
 
 ## Overall
+
 This is a distributed concurrent Key-Value cache based on Go and Gin
 
+### Structure diagram
+
+![avatar](/Distributed%20Cache%20diagram.jpeg)
+
 ### Cache Algorithm:
+
 The cache is implementted with LRU with Go std lib container double linked list.
 
 ### Cache Type: Cache Through
+
 I think cache through is somehow more conventient.
 Developers do not need to interact with the database directly and worried about consistentency problem.
-
 
 ### Usage
 
 Compile the project
+
 ```
 go build -o yourCache
 ```
 
 start a single cache server (you should create your getter function first)
+
 ```
 ./ yourCache -port=8888 -api=1
 ```
@@ -34,7 +43,7 @@ addrMap := map[int]string{
 		8002:"http://localhost:8002",
 		8003:"http://localhost:8003",
 }
- 
+
 // create a array contains all peer nodes address
 var addrs []string
 for _,v := range addrMap{
@@ -58,13 +67,14 @@ if api{
 		// if we dont use go here, the thread will stuck and will not proceed to create local cache server
 		go cache.StartAPIServer(apiAddr,":9999",cacheGroup)
 }
-  	
+
 // start Cache server
 cache.StartCacheServer(addrMap[port],":"+ strconv.Itoa(port),addrs,cacheGroup)
 ```
 
 How to create your Getter function
 Mysql for example
+
 ```
 getterFn := cache.GetterFunc(func(key string) ([]byte, error) {
 	// create connection to you database in here we use mysql as example
